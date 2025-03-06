@@ -2,7 +2,7 @@
 title: "Chocolate Chip Cookies"
 execute:
   error: true
-author: "Your Name"
+author: "Josh Bugay"
 output: html_document
 ---
 
@@ -12,11 +12,21 @@ First, read in the CSV data of cookie ingredients.
 Make sure that your end-result data has appropriate types for each column - these should match the types provided in the documentation in the README.md file.
 
 ```{r}
+#install.packages("dplyr")
+library(dplyr)
+library(reticulate)
+cookie <- read.csv("choc_chip_cookie_ingredients.csv", header = TRUE)
+cookie <- cookie %>% select(-X) #This takes out the additional index column that we is irrelevant
+head(cookie %>% arrange(Recipe_Index))
+tail(cookie) 
 
 ```
 
 ```{python}
-
+import pandas as pd
+cookie = pd.read_csv("choc_chip_cookie_ingredients.csv", index_col=0) #index_col drops index column upon read
+print(cookie.head)
+cookie = pd.DataFrame(cookie).sort_values('Recipe_Index') # create data frame and sort rows by recipe index
 ```
 
 
@@ -34,11 +44,11 @@ Exploratory data analysis is the process of getting familiar with your dataset. 
 
 Generate at least 5 questions you might explore using this database of cookie ingredients.
 
-1.
-2. 
-3. 
-4. 
-5. 
+1. What should the bounds for my outliers be
+2. Are there any values that have different units than in other recipes
+3. What is the average of each ingredient over all of the recipes
+4. How do I fill in values/account for outlier ingredients
+5. What are the most common 5 ingredients
 
 
 ### Skimming the Data
@@ -53,14 +63,21 @@ Install both packages, and read the package documentation ([R](https://cran.r-pr
 
 
 ```{r}
-
+##install.packages('skimr')
+library(skimr)
+skim(cookie) %>% yank(c("character")) #using yank to see data on columns with different classes of variables
+skim(cookie) %>% yank(c("numeric"))
 ```
 
 ```{python}
-
+import skimpy as sk
+sk.skim(r.cookie)
 ```
 
 [Part 2] Write 1-2 sentences about what you can tell from each summary display you generate. Did you discover anything new about the data?
+*R:* The R summmary statistics help me know how many unique values there are for each column. I found out that the average rating over all recipes is 0.8149.
+*Python:* The skim summary statistics allowed me to see the min, max, and quartiles for all the numeric data. It also generated a histogram, which was helpful in visualizing the distribution of this data.
+
 
 ### Generating Tables
 
@@ -68,9 +85,50 @@ Another useful technique for exploratory data analysis is to generate summary ta
 You may want to use the `dplyr` package in R (`group_by` or `count` functions), as well as the `groupby` and `count` methods in Pandas. [Python example](https://sparkbyexamples.com/pandas/pandas-groupby-count-examples/), [R example](https://dplyr.tidyverse.org/reference/count.html)
 
 [Part 1] Using R and Python, generate a table that shows what **proportion** of recipes contain each type of ingredient, for the most common 20 ingredients.
+```{r, message = FALSE}
+library(dplyr)
+library(ggplot2)
+library(forcats)
 
+num_recip <- n_distinct(cookie$Recipe_Index) # getting number of distinct recipe indices
+cookie %>% 
+ group_by(Ingredient) %>% 
+ summarize(n = length(unique(Recipe_Index))) %>%
+ arrange(desc(n)) %>%
+ slice_head(n=20) %>%
+ mutate(n_prop = n/num_recip) %>%
+ mutate(Ingredient = fct_reorder(Ingredient, n_prop)) %>%
+ tibble()
+```
+
+
+```{python}
+recip_count = cookie['Recipe_Index'].nunique()
+ing_counts= (cookie
+ .groupby('Ingredient')
+ .agg({'Recipe_Index': 'nunique'})
+ .reset_index()
+ .sort_values('Recipe_Index', ascending= False)
+ .head(20)
+ )
+ing_counts['n']=ing_counts['Recipe_Index']
+ing_counts['n_prop']= ing_counts['n']/recip_count
+ing_counts=ing_counts.drop('Recipe_Index', axis=1).drop('n', axis=1)
+ing_counts=ing_counts.reset_index(drop=True)
+sk.skim(ing_counts)
+```
 [Part 2] Print out a character string that lists all of the ingredients that do not appear in at least 20 recipes.
+```{r}
+num_recip <- n_distinct(cookie$Recipe_Index) # getting number of distinct recipe indices
+not_20_cookie <- cookie %>% 
+ group_by(Ingredient) %>% 
+ summarize(n = length(unique(Recipe_Index))) %>%
+ arrange(desc(n)) %>%
+ slice_tail(n=length('Ingredient')-20) %>%
+ select(-n) 
 
+print(not_20_cookie[[1]])
+```
 
 (Delete this note, but you can include data values inline in markdown text by using backticks, at least in R. For instance, here is R's built in value for pi: `r pi`. Unfortunately, this doesn't work in python using the knitr markdown engine, but you can print the list out in python anyways using a code chunk.)
 
@@ -80,4 +138,32 @@ Using whatever plotting system you are comfortable with in R or python, see if y
 
 [Part 1] Create at least one plot (it doesn't have to be pretty) that showcases an interesting facet of the data.
 
+```{r}
+##show something cool in a chart based on an interesting thing from the dataset
+##
+
+# I want to create a scatterplot of egg quantity vs flour quantity to find the regression line and the average 'ratio' between the two.
+
+flour_data <- cookie %>%
+  filter(Ingredient == "all purpose flour") %>%
+  select(Recipe_Index, flour = Quantity)
+
+# Extract egg data  
+egg_data <- cookie %>%
+  filter(Ingredient == "egg") %>%
+  select(Recipe_Index, eggs = Quantity)
+
+# Join the two datasets by Recipe_Index
+egg_flour_combined <- inner_join(flour_data, egg_data, by = "Recipe_Index")
+#?inner.join
+
+ggplot(egg_flour_combined, aes(x=flour, y=eggs))+
+ geom_point()+
+ geom_smooth(method = "lm", color = 'red')+
+ ggtitle('Cups of flour vs number of eggs per recipe')
+ 
+```
+
 [Part 2] Write 2-3 sentences about what you can learn from that plot and what directions you might want to investigate from here.
+
+This plot shows the trends of the flour:egg ratio for the cookie recipes that had both all-purpose flour and eggs. Personally, this chart would be good to create an average recipe off of, or scale up any recipe by following the trend line to the desired amount of either ingredient. I would like to investigate the recipes that fall beyond a confidence interval from the regression line. These recipes could be using another type of flour.
